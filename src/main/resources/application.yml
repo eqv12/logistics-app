@@ -1,0 +1,31 @@
+#springdoc:
+#  api-docs:
+#    enabled: true
+#    path: /v3/api-docs
+#  swagger-ui:
+#    enabled: true
+#    path: /swagger-ui.html
+#    url: /v3/api-docs
+
+# src/main/resources/application.yml
+springdoc:
+  api-docs:
+    # Keep enabled if you want the /v3/api-docs endpoint active
+    enabled: true
+    # Serve the loaded spec at the standard path
+    path: /v3/api-docs
+    # --- Add this section to load from file ---
+    groups:
+      enabled: true # Must be enabled for location/file loading
+    # Tell springdoc where the file is relative to classpath root
+    # Ensure your file is named openapi.yaml and is directly in src/main/resources
+    location: /openapi.yaml
+    # --- Optionally prevent scanning (good practice if using static file) ---
+    packagesToScan: []
+    pathsToMatch: []
+    # ----------------------------------------
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    # This URL MUST match the api-docs.path where the spec (now loaded from file) is served
+    url: /v3/api-docs

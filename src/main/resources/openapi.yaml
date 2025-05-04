@@ -1,0 +1,1438 @@
+openapi: 3.0.3
+info:
+  title: Logistics Delivery API
+  description: "API V2: Managing vehicles, orders, assignments, and reporting in a logistics system. Includes pagination, filtering, sorting, security, and improved schemas."
+  version: 2.0.0 # Major version bump due to breaking changes and significant additions
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+# --- Security Definitions ---
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT Bearer token obtained via /auth/login"
+  schemas:
+    # --- Request Schemas ---
+    OrderRequest:
+      type: object
+      required:
+        - customerRequest
+        - orderDate
+        - deliveryType # Changed from window
+        - parcelDetails
+        - sourceLocation
+      properties:
+        customerRequest:
+          $ref: '#/components/schemas/CustomerRequest'
+        orderDate:
+          type: string
+          format: date-time
+          description: Timestamp when the order was placed (ISO 8601). Server should default if not provided?
+          example: "2025-05-04T11:00:00Z"
+        deliveryType:
+          type: integer
+          description: "Delivery service level (0: Same Day, 1: Next Day, etc.). Determines priority."
+          example: 0
+        parcelDetails:
+          $ref: '#/components/schemas/ParcelDetails'
+        sourceLocation:
+          description: Location where the parcel originates (e.g., warehouse).
+          $ref: '#/components/schemas/AddressRequest'
+
+    UpdateOrderRequest: # Schema for PATCH /orders/{id}
+      type: object
+      properties:
+        deliveryAddress: # Example patchable field
+           $ref: '#/components/schemas/AddressRequest'
+        # Add other fields that are allowed to be updated via PATCH
+        # e.g., customer phone number, parcel details IF order not processed
+
+    CustomerRequest:
+      type: object
+      required:
+        - name
+        - phoneNumber
+        - deliveryAddress
+      properties:
+        name:
+          type: string
+          example: "Ravi Kumar"
+        phoneNumber:
+          type: string
+          example: "+919876543210" # Example Indian format
+        deliveryAddress:
+          $ref: '#/components/schemas/AddressRequest'
+
+    AddressRequest:
+      type: object
+      required:
+        - street
+        # - area # Removed 'area' as often covered by street/city/pincode
+        - city
+        - state
+        - pinCode
+      properties:
+        street:
+          type: string
+          description: Street address line 1 (and 2 if needed).
+          example: "15, Race Course Road"
+        city:
+          type: string
+          example: "Coimbatore"
+        state:
+          type: string
+          example: "Tamil Nadu"
+        pinCode:
+          type: string
+          description: Indian Postal Index Number (PIN Code).
+          example: "641018"
+        # Optional: Add landmark if useful
+        # landmark:
+        #  type: string
+        #  example: "Near G.D. Matriculation School"
+
+    ParcelDimensions:
+      type: object
+      required:
+        - length
+        - width
+        - height
+      properties:
+        length:
+          type: number
+          format: float
+          description: Length of the parcel in centimeters (cm).
+          example: 30.5
+        width:
+          type: number
+          format: float
+          description: Width of the parcel in centimeters (cm).
+          example: 20.0
+        height:
+          type: number
+          format: float
+          description: Height of the parcel in centimeters (cm).
+          example: 15.0
+
+    ParcelDetails:
+      type: object
+      required:
+        - weight
+        - dimensions
+      properties:
+        weight:
+          type: number
+          format: float
+          description: Weight of the parcel in kilograms (kg).
+          example: 4.5
+          minimum: 0 # Add validation
+        dimensions:
+          $ref: '#/components/schemas/ParcelDimensions'
+        volume: # Added calculated volume here
+          type: number
+          format: float
+          description: "Calculated volume of the parcel in cubic meters (m^3). Read-only."
+          example: 0.00915
+          readOnly: true # Indicates server-calculated
+
+    VehicleRequest: # For POST /vehicles
+      type: object
+      required:
+        - registrationNumber
+        - vehicleType
+        - capacity # Specify capacity unit clearly
+      properties:
+        registrationNumber:
+          type: string
+          description: Unique vehicle registration number (e.g., license plate).
+          example: "TN38AB1234"
+        vehicleType:
+          type: string
+          description: Type of vehicle (e.g., Van, Truck, Bike).
+          example: "Van"
+        capacity:
+          type: number # Changed to number to allow float if needed
+          format: float # Assuming capacity unit might need decimals (e.g., kg or m^3)
+          description: Total carrying capacity of the vehicle (e.g., in kilograms or cubic meters - specify unit).
+          example: 500.0 # Example in kg
+          minimum: 0
+
+    UpdateVehicleDetailsRequest: # For PUT /vehicles/{reg}/details
+       type: object
+       properties:
+          capacity: # Allow updating total capacity
+            type: number
+            format: float
+            description: New total carrying capacity of the vehicle (e.g., in kg).
+            example: 550.0
+            minimum: 0
+          vehicleStatus: # Allow updating status
+            $ref: '#/components/schemas/VehicleStatus'
+       minProperties: 1 # Require at least one property to be updated
+
+    UpdateOrderStatusRequest: # For PUT /orders/{id}/status
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+
+    AssignOrdersRequest: # For POST /assign-orders
+      type: object
+      properties:
+        maxDistanceKm: # Keep this example parameter
+          type: number
+          format: float
+          description: Optional maximum distance constraint for assignments.
+          example: 15.0
+        # Add other potential parameters for assignment logic if needed
+        # e.g., specific vehicle IDs to consider, specific order IDs
+
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          example: "ravikumar"
+        email:
+          type: string
+          format: email
+          example: "ravi.kumar@example.com"
+        password:
+          type: string
+          format: password
+          description: "Password requirements should be enforced server-side (e.g., min length)."
+          example: "strongPassword123"
+        location: # Made optional
+          $ref: '#/components/schemas/AddressRequest'
+          description: "Optional: User's physical address (e.g., required for Driver role)."
+          nullable: true
+
+    LoginRequest:
+      type: object
+      required:
+        - username # Or email, depending on login method
+        - password
+      properties:
+        username:
+          type: string
+          example: "ravikumar"
+        password:
+          type: string
+          format: password
+          example: "strongPassword123"
+
+    # --- Response Schemas ---
+    OrderResponse:
+      type: object
+      # Removed vehicleResponse from required list
+      required:
+        - id
+        - customerResponse
+        - orderDate
+        - deliveryType
+        - parcelDetails
+        - sourceLocation
+        - status
+        - internalProcessingStatus # Added internal status
+        # deliveryDate is nullable
+        # assignedVehicleId is nullable
+      properties:
+        id:
+           type: string
+           format: uuid
+           description: Unique identifier for the order.
+           example: "ord_87e6a3e1-5b9a-4f7c-8d3f-4a0b1e9c2d5a"
+        customerResponse:
+          $ref: '#/components/schemas/CustomerResponse'
+        orderDate:
+          type: string
+          format: date-time
+          description: Timestamp when the order was placed (ISO 8601).
+          example: "2025-05-04T11:00:00Z"
+        deliveryType:
+          type: integer
+          description: "Delivery service level (0: Same Day, 1: Next Day, etc.)."
+          example: 0
+        parcelDetails:
+          $ref: '#/components/schemas/ParcelDetails' # Volume is now nested here
+        sourceLocation:
+          description: Location where the parcel originates.
+          $ref: '#/components/schemas/AddressResponse'
+        status:
+          $ref: '#/components/schemas/OrderStatus' # Logistics status
+        internalProcessingStatus:
+          $ref: '#/components/schemas/InternalProcessingStatus' # Internal readiness status
+        deliveryDate:
+          type: string
+          format: date-time
+          description: Timestamp when the order was actually delivered (ISO 8601). Null if not delivered.
+          example: "2025-05-04T15:30:00Z"
+          nullable: true
+        assignedVehicleId: # Changed from object to ID string
+          type: string
+          description: Registration number of the assigned vehicle. Null if not assigned.
+          example: "TN38AB1234"
+          nullable: true
+        # Removed nested vehicleResponse
+
+    CustomerResponse:
+      type: object
+      required:
+        - id
+        - name
+        - phoneNumber
+        - address
+      properties:
+        id:
+          type: string
+          format: uuid # Assuming UUIDs for customers too
+          example: "cust_f4a7b8e1-1b2c-3d4e-5f6a-7b8c9d0e1f2a"
+        name:
+          type: string
+          example: "Ravi Kumar"
+        phoneNumber:
+          type: string
+          example: "+919876543210"
+        address: # Delivery address for this customer (from the order)
+          $ref: '#/components/schemas/AddressResponse'
+
+    AddressResponse:
+      allOf: # Combines AddressRequest fields with coordinates
+        - $ref: '#/components/schemas/AddressRequest'
+        - type: object
+          required:
+            - latitude
+            - longitude
+          properties:
+            latitude:
+              type: number
+              format: double
+              description: Latitude coordinate.
+              example: 11.0168 # Example Coimbatore Lat
+            longitude:
+              type: number
+              format: double
+              description: Longitude coordinate.
+              example: 76.9558 # Example Coimbatore Lon
+
+    VehicleResponse:
+      type: object
+      required:
+        - registrationNumber
+        - vehicleType
+        - capacity
+        - availableCapacity
+        - vehicleStatus
+      properties:
+        registrationNumber:
+          type: string
+          example: "TN38AB1234"
+        vehicleType:
+          type: string
+          example: "Van"
+        capacity:
+          type: number
+          format: float
+          description: Total carrying capacity (e.g., in kg).
+          example: 500.0
+        availableCapacity:
+          type: number
+          format: float
+          description: Current available capacity (server-calculated, e.g., in kg).
+          example: 350.5
+          readOnly: true
+        vehicleStatus:
+          $ref: '#/components/schemas/VehicleStatus'
+
+    AuthToken: # Response for POST /auth/login
+      type: object
+      required:
+        - token
+        - expiresIn
+        - tokenType
+      properties:
+        token:
+          type: string
+          description: JWT authentication token.
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        expiresIn:
+          type: integer
+          description: Token expiry time in seconds from issue time.
+          example: 3600
+        tokenType:
+          type: string
+          description: Token type.
+          example: "Bearer"
+          default: "Bearer"
+
+    AssignmentSummaryResponse: # Response for POST /assign-orders
+      type: object
+      properties:
+        assignmentsCreated:
+           type: integer
+           description: Number of new order assignments made in this run.
+           example: 15
+        vehiclesUtilized:
+           type: integer
+           description: Number of distinct vehicles assigned orders in this run.
+           example: 3
+        message:
+           type: string
+           description: Optional status message.
+           example: "Assignment process completed."
+
+    VehicleAssignment: # Schema for items in GET /assignments response array
+      type: object
+      required:
+        - vehicleIdentifier
+        - assignedOrders
+      properties:
+        vehicleIdentifier:
+          type: object
+          required:
+            - registrationNumber
+            - vehicleType # Added type for context
+          properties:
+            registrationNumber:
+              type: string
+              example: "TN38AB1234"
+            vehicleType:
+              type: string
+              example: "Van"
+        assignedOrders: # List of orders for this vehicle
+          type: array
+          items:
+             $ref: '#/components/schemas/OrderResponse' # Full order details needed here
+          description: List of orders currently assigned to this vehicle. (Consider adding pagination info here if this list can be very long)
+
+    OrderStatusReportResponse: # Response for GET /report
+      type: object
+      properties:
+        totalOrders:
+          type: integer
+          description: Total number of orders considered in the report (e.g., within a time range if filters added).
+        pendingOrders:
+          type: integer
+        outForDeliveryOrders:
+           type: integer
+        inProgressOrders: # Maybe combine with Out for Delivery? Or keep separate?
+           type: integer
+        deliveredOrders:
+          type: integer
+        failedOrders:
+           type: integer
+        cancelledOrders:
+           type: integer
+      # Add date range fields if reporting becomes time-bound
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: A human-readable error message.
+          example: "Order not found."
+        # Optional: Add an error code for programmatic handling
+        # errorCode:
+        #  type: string
+        #  example: "ERR_ORDER_NOT_FOUND"
+        # Optional: Add validation error details
+        # details:
+        #  type: array
+        #  items:
+        #    type: object
+        #    properties:
+        #      field:
+        #        type: string
+        #      issue:
+        #        type: string
+
+    # --- Enum Schemas ---
+    OrderStatus: # Logistics Status
+      type: string
+      description: The current logistics status of the order.
+      enum:
+        - Pending # Order created, not yet processed or assigned
+        - Out for Delivery # Assigned to a vehicle, currently on route
+        - Delivered # Successfully delivered
+        - Failed # Delivery attempt failed
+        - Cancelled # Order cancelled before delivery
+        # - In Progress # Could be redundant if Out for Delivery used? Or use for warehouse processing visibility? Let's remove for now.
+      example: Pending
+
+    InternalProcessingStatus: # Internal Readiness Status
+       type: string
+       description: The internal status indicating if the order is ready for logistics dispatch.
+       enum:
+         - Processing # Business is preparing the order (picking, packing)
+         - ReadyForDispatch # Order is physically ready for pickup/assignment
+       example: Processing
+
+    VehicleStatus:
+      type: string
+      description: The current operational status of the vehicle.
+      enum:
+        - Available # Ready for assignment
+        - In Transit # Currently executing a route
+        - Under Maintenance # Temporarily unavailable
+        - Removed # Decommissioned / Deleted logically
+      example: Available
+
+    # --- Pagination Wrappers ---
+    PaginationMetadata:
+      type: object
+      required:
+        - totalItems
+        - limit
+        - offset
+      properties:
+        totalItems:
+          type: integer
+          description: Total number of items available matching the query.
+          example: 153
+        limit:
+          type: integer
+          description: The limit parameter used for this page.
+          example: 20
+        offset:
+          type: integer
+          description: The offset parameter used for this page.
+          example: 40
+        # Optional: Add next/prev links if helpful
+        # nextPageOffset:
+        #   type: integer
+        #   nullable: true
+        # previousPageOffset:
+        #   type: integer
+        #   nullable: true
+
+    PaginatedOrderResponse:
+      type: object
+      required:
+        - metadata
+        - data
+      properties:
+        metadata:
+          $ref: '#/components/schemas/PaginationMetadata'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderResponse'
+
+    PaginatedVehicleResponse:
+      type: object
+      required:
+        - metadata
+        - data
+      properties:
+        metadata:
+          $ref: '#/components/schemas/PaginationMetadata'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VehicleResponse'
+
+    PaginatedVehicleAssignmentResponse:
+      type: object
+      required:
+        - metadata
+        - data
+      properties:
+        metadata:
+          $ref: '#/components/schemas/PaginationMetadata'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VehicleAssignment' # Use the corrected assignment schema
+
+  # --- Reusable Responses ---
+  responses:
+    UnauthorizedError:
+      description: Authentication information is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            message: "Unauthorized: Access token is missing or invalid."
+    NotFoundError:
+      description: The specified resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            message: "Resource not found."
+    ForbiddenError:
+       description: Authenticated user does not have permission for this action.
+       content:
+         application/json:
+           schema:
+             $ref: '#/components/schemas/ErrorResponse'
+           example:
+             message: "Forbidden: You do not have permission to perform this action."
+# --- Global Security Requirement (Optional - can be applied per-operation) ---
+# security:
+#  - bearerAuth: []
+
+tags:
+  - name: Orders
+    description: Operations related to delivery orders
+  - name: Vehicles
+    description: Operations related to vehicle fleet
+  - name: Assignment
+    description: Assigning orders to vehicles and viewing assignments
+  - name: Reporting
+    description: Reports and analytics
+  - name: Authentication
+    description: User registration, login, logout
+
+paths:
+  /api/v1/orders:
+    get:
+      tags:
+        - Orders
+      summary: List all orders (Paginated)
+      description: Retrieves a paginated list of orders with optional filtering and sorting.
+      operationId: listOrders
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        # --- Pagination ---
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of orders to return per page.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of orders to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        # --- Sorting ---
+        - name: sortBy
+          in: query
+          required: false
+          description: "Field to sort orders by. Allowed fields: 'orderDate', 'deliveryType', 'status', 'customerName'."
+          schema:
+            type: string
+            example: "orderDate"
+        - name: sortDirection
+          in: query
+          required: false
+          description: Sorting direction.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        # --- Filtering ---
+        - name: status
+          in: query
+          required: false
+          description: Filter orders by logistics status.
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: internalProcessingStatus
+          in: query
+          required: false
+          description: Filter orders by internal processing status.
+          schema:
+            $ref: '#/components/schemas/InternalProcessingStatus'
+        - name: customerName
+          in: query
+          required: false
+          description: Filter orders by customer name (partial match).
+          schema:
+            type: string
+        - name: deliveryType
+          in: query
+          required: false
+          description: "Filter orders by delivery type (0: Same Day, 1: Next Day, etc.)."
+          schema:
+            type: integer
+        - name: assignedVehicleId
+          in: query
+          required: false
+          description: Filter orders by assigned vehicle registration number.
+          schema:
+            type: string
+        - name: orderDateFrom
+          in: query
+          required: false
+          description: Filter orders placed on or after this date (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: orderDateTo
+          in: query
+          required: false
+          description: Filter orders placed on or before this date (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Successfully retrieved the paginated list of orders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrderResponse' # Use a wrapper for pagination metadata
+        '400':
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError' # Reference common response
+
+    post:
+      tags:
+        - Orders
+      summary: Create a new delivery order
+      description: Adds a new delivery order to the system. Starts with internal status 'Processing'.
+      operationId: createOrder
+      security: # Requires authentication
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '201':
+          description: Order successfully created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid request payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError' # Reference common response
+
+  /api/v1/orders/{id}:
+    get:
+      tags:
+        - Orders
+      summary: Get an order by ID
+      description: Retrieve the details of a specific order by its ID.
+      operationId: getOrderById
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The ID (e.g., UUID or unique identifier) of the order to retrieve.
+          schema:
+            type: string
+            format: uuid # Assuming UUID, adjust if different
+            example: "ord_87e6a3e1-5b9a-4f7c-8d3f-4a0b1e9c2d5a"
+      responses:
+        '200':
+          description: Successfully retrieved the order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError' # Reference common response
+
+    delete:
+      tags:
+        - Orders
+      summary: Delete a pending order
+      description: Deletes an order only if its logistics status is 'Pending' and internal status allows deletion.
+      operationId: deletePendingOrder
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the order to delete.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Order successfully deleted (No Content).
+        '400':
+          description: Cannot delete order (e.g., not in Pending status).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags:
+        - Orders
+      summary: Update editable order details
+      description: Allows partial updates to certain order fields (e.g., delivery address) if the order is in a modifiable state (e.g., internal status 'Processing').
+      operationId: updateOrderDetails
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID of the order to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderRequest' # Define which fields are patchable
+      responses:
+        '200':
+          description: Order details updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Cannot update order (e.g., invalid field or order state).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/orders/{id}/status:
+    put:
+      tags:
+        - Orders
+      summary: Update the logistics status of an order
+      description: Updates the primary logistics status (Pending, Out for Delivery, etc.) of an existing order. Define allowed transitions in business logic.
+      operationId: updateOrderStatus
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The ID of the order to update.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest' # Renamed for clarity
+      responses:
+        '200':
+          description: Successfully updated the order status.
+          content:
+            application/json: # Return updated order for confirmation
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Invalid status transition or request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # Endpoint to update internal processing status (Example - might be internal system update)
+  # /api/v1/orders/{id}/internalStatus:
+  #  put:
+  #    tags: [Orders]
+  #    summary: Update internal processing status
+  #    description: Mark an order as ReadyForDispatch by internal systems.
+  #    ... (security, params, requestBody with InternalProcessingStatus, responses) ...
+
+  /api/v1/orders/unassigned:
+    get:
+      tags:
+        - Orders
+      summary: Get unassigned, ready orders (Paginated)
+      description: Retrieves a paginated list of orders that are ready for dispatch but not yet assigned to any vehicle.
+      operationId: getUnassignedOrders
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters: # Add Pagination, Sorting, Filtering here too
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of orders to return per page.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of orders to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: sortBy
+          in: query
+          required: false
+          description: "Field to sort orders by. Allowed fields: 'orderDate', 'deliveryType'."
+          schema:
+            type: string
+            example: "deliveryType" # Prioritize SameDay (0)
+        - name: sortDirection
+          in: query
+          required: false
+          description: Sorting direction.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc # Sort by deliveryType ascending (0 first)
+        - name: deliveryType # Specific filter example
+          in: query
+          required: false
+          description: "Filter by delivery type (0: Same Day, 1: Next Day, etc.)."
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successfully retrieved unassigned, ready orders.
+          content:
+            application/json:
+              schema:
+                 $ref: '#/components/schemas/PaginatedOrderResponse'
+        '400':
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/vehicles:
+    get:
+      tags:
+        - Vehicles
+      summary: List all vehicles (Paginated)
+      description: Retrieves a paginated list of all vehicles with optional filtering and sorting.
+      operationId: listVehicles
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        # --- Pagination ---
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of vehicles to return per page.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of vehicles to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        # --- Sorting ---
+        - name: sortBy
+          in: query
+          required: false
+          description: "Field to sort vehicles by. Allowed fields: 'registrationNumber', 'vehicleType', 'capacity', 'availableCapacity', 'vehicleStatus'."
+          schema:
+            type: string
+            example: "registrationNumber"
+        - name: sortDirection
+          in: query
+          required: false
+          description: Sorting direction.
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        # --- Filtering ---
+        - name: registrationNumber
+          in: query
+          required: false
+          description: Filter vehicles by registration number (partial match).
+          schema:
+            type: string
+        - name: vehicleType
+          in: query
+          required: false
+          description: Filter vehicles by type (e.g., Truck, Van).
+          schema:
+            type: string
+        - name: vehicleStatus
+          in: query
+          required: false
+          description: Filter vehicles by status.
+          schema:
+            $ref: '#/components/schemas/VehicleStatus'
+        - name: minCapacity
+          in: query
+          required: false
+          description: Filter vehicles with total capacity greater than or equal to this value.
+          schema:
+            type: integer
+        - name: minAvailableCapacity
+          in: query
+          required: false
+          description: Filter vehicles with available capacity greater than or equal to this value.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successfully retrieved the paginated list of vehicles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedVehicleResponse' # Use pagination wrapper
+        '400':
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Vehicles
+      summary: Add a new vehicle to the fleet
+      description: Adds a new vehicle. `availableCapacity` is automatically set equal to `capacity`. `vehicleStatus` defaults to 'Available'.
+      operationId: addVehicle
+      security: # Requires authentication
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VehicleRequest' # Only needs capacity, type, reg#
+      responses:
+        '201':
+          description: Vehicle successfully added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse'
+        '400':
+          description: Invalid request payload (e.g., duplicate registration number).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/vehicles/{registrationNumber}:
+    get:
+      tags:
+        - Vehicles
+      summary: Get a vehicle by registration number
+      description: Retrieve the details of a specific vehicle by its registration number.
+      operationId: getVehicleByRegistrationNumber # Renamed for clarity
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: registrationNumber
+          in: path
+          required: true
+          description: The registration number of the vehicle to retrieve.
+          schema:
+            type: string
+            example: "TN38AB1234"
+      responses:
+        '200':
+          description: Successfully retrieved the vehicle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError' # Use common response
+
+    delete:
+      tags:
+        - Vehicles
+      summary: Remove a vehicle
+      description: Deletes a vehicle from the fleet (sets status to 'Removed' or deletes) only if not currently 'In Transit'.
+      operationId: deleteVehicle
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: registrationNumber
+          in: path
+          required: true
+          description: Registration number of the vehicle to delete.
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Vehicle successfully removed (No Content).
+        '400':
+          description: Vehicle is active ('In Transit') and cannot be removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # Renamed/repurposed endpoint for updating vehicle properties like total capacity or status
+  /api/v1/vehicles/{registrationNumber}/details:
+    put:
+      tags:
+          - Vehicles
+      summary: Update vehicle details (e.g., total capacity, status)
+      description: Updates changeable properties of a vehicle like its total capacity or status. Does not allow direct update of availableCapacity.
+      operationId: updateVehicleDetails
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: registrationNumber
+          in: path
+          required: true
+          description: Registration number of the vehicle to update.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVehicleDetailsRequest' # New schema for this
+      responses:
+        '200':
+          description: Vehicle details updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleResponse' # Return updated vehicle
+        '400':
+          description: Invalid request payload or update not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+
+  /api/v1/assign-orders:
+    post:
+      tags:
+        - Assignment
+      summary: Assign ready orders to vehicles
+      description: Triggers the assignment process for orders that are 'ReadyForDispatch', assigning them to available vehicles based on capacity, proximity (using coordinates), and delivery type prioritization.
+      operationId: assignOrders
+      security: # Requires authentication
+        - bearerAuth: []
+      requestBody: # Optional parameters for assignment logic
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignOrdersRequest' # Renamed
+      responses:
+        '200':
+          description: Assignment process completed successfully.
+          content:
+            application/json:
+              schema:
+                 $ref: '#/components/schemas/AssignmentSummaryResponse' # Defined response
+        '400':
+          description: Invalid request or unable to assign orders (e.g., no ready orders, no available vehicles).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/assignments:
+    get:
+      tags:
+        - Assignment
+      summary: Get all current vehicle assignments (Paginated)
+      description: Returns a paginated list showing which orders are currently assigned to which vehicles.
+      operationId: getAllAssignments
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters: # Add Pagination, Sorting, Filtering
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of vehicle assignments to return per page.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of vehicle assignments to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: vehicleStatus # Example filter
+          in: query
+          required: false
+          description: Filter assignments by vehicle status (e.g., 'In Transit').
+          schema:
+            $ref: '#/components/schemas/VehicleStatus'
+        - name: registrationNumber # Example filter
+          in: query
+          required: false
+          description: Filter assignments for a specific vehicle.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved all assignments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedVehicleAssignmentResponse' # Use fixed schema with pagination wrapper
+        '400':
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/vehicles/{registrationNumber}/assignments:
+    get:
+      tags:
+        - Assignment
+      summary: Get assignments for a specific vehicle (Paginated Orders)
+      description: Returns the list of orders currently assigned to the specified vehicle, paginated.
+      operationId: getAssignmentsByVehicle
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: registrationNumber
+          in: path
+          required: true
+          description: Registration number of the vehicle.
+          schema:
+            type: string
+        # --- Pagination for the orders list within the response ---
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of assigned orders to return.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of assigned orders to skip.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        # Potentially add sorting/filtering for assigned orders here too
+      responses:
+        '200':
+          description: Successfully retrieved the vehicle's assignments.
+          content:
+            application/json:
+              schema: # Return paginated orders directly for this specific vehicle
+                $ref: '#/components/schemas/PaginatedOrderResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError' # Vehicle not found
+
+
+  /api/v1/report:
+    get:
+      tags:
+        - Reporting
+      summary: Get a summary report of orders by status
+      description: Retrieves a count of orders broken down by their current logistics status. Consider adding date range filters.
+      operationId: getReport
+      security: # Requires authentication
+        - bearerAuth: []
+      # Add optional date range parameters (e.g., reportDateFrom, reportDateTo) here if needed
+      responses:
+        '200':
+          description: Successfully retrieved order report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusReportResponse' # Renamed for clarity
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/shipping-overview:
+    get:
+      tags:
+        - Reporting
+      summary: Get daily shipping overview (Paginated)
+      description: Returns a paginated list of orders relevant to shipping operations for a specific day (e.g., orders delivered or out for delivery on that day).
+      operationId: getShippingOverview
+      security: # Requires authentication
+        - bearerAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: Date for which to retrieve the shipping overview (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        # --- Pagination ---
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of orders to return per page.
+          schema:
+            type: integer
+            minimum: 1
+            default: 50 # Maybe larger default for overviews
+        - name: offset
+          in: query
+          required: false
+          description: Number of orders to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        # Add optional sorting/filtering if needed
+      responses:
+        '200':
+          description: Successfully retrieved orders for the specified day.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrderResponse'
+        '400':
+          description: Invalid date format or parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+
+  /api/v1/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      description: Creates a new user account. Location is optional.
+      operationId: registerUser
+      # No security: Public endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest' # Location made optional
+      responses:
+        '201':
+          description: User successfully registered (response body typically minimal or empty).
+        '400':
+          description: Invalid input (e.g., username exists, invalid email/password format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Log in an existing user
+      description: Authenticates user credentials and returns a JWT Bearer token.
+      operationId: loginUser
+      # No security: Public endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+        '401':
+          description: Invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Log out the current user
+      description: Invalidates the user's token on the server-side if session management is used (or client simply discards token).
+      operationId: logoutUser
+      security: # Requires authentication to know who is logging out
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Successfully logged out (No Content).
+        '401':
+          $ref: '#/components/responses/UnauthorizedError' # If no valid token provided
+
