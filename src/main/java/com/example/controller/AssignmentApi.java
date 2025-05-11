@@ -42,7 +42,8 @@ import javax.annotation.Generated;
 @Tag(name = "Assignment", description = "Assigning orders to vehicles and viewing assignments")
 public interface AssignmentApi {
 
-    default Optional<NativeWebRequest> getRequest() {
+    default Optional<NativeWebRequest> getRequest()
+    {
         return Optional.empty();
     }
 
