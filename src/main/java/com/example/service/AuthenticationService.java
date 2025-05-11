@@ -15,14 +15,15 @@ import java.util.Optional;
 @Service
 public class AuthenticationService {
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final JwtUtil jwtUtil;
+    private final BCryptPasswordEncoder passwordEncoder;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
-    @Autowired
-    private BCryptPasswordEncoder passwordEncoder;
+    public AuthenticationService(UserRepository userRepository, JwtUtil jwtUtil, BCryptPasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.jwtUtil = jwtUtil;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     // 🔐 Authenticate user and return JWT wrapped in AuthToken
     public AuthToken authenticateUser(LoginRequest loginRequest) {

@@ -49,4 +49,17 @@ spring:
         # Explicitly setting the dialect for H2
         dialect: org.hibernate.dialect.H2Dialect
 
+geocoding:
+  nominatim:
+    api:
+      url: "https://nominatim.openstreetmap.org/search"
+    # Set a descriptive User-Agent as per Nominatim's policy
+    user-agent: "YourAppName/1.0 (Logistics API; your-contact-email@example.com)"
+google:
+  maps:
+    api:
+      key: "AIzaSyDDOWhM55iRyOI6qT1QB42_H8aUqRXXOsQ"
 
+logging:
+  level:
+    com.example.service.NominatimGeocodingServiceImpl: DEBUG
