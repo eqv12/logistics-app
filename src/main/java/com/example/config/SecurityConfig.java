@@ -31,7 +31,7 @@ public class SecurityConfig {
         return http
                 .csrf().disable()
                 .authorizeHttpRequests()
-                .antMatchers("/api/v1/auth/**", "/api/v1/vehicles/**").permitAll()  // Allow login/register
+                .antMatchers("/api/v1/auth/**", "/api/v1/vehicles/**", "/api/v1/orders/**").permitAll()  // Allow login/register
                 .anyRequest().authenticated()                // Protect everything else
                 .and()
                 .sessionManagement()
